@@ -1,7 +1,11 @@
 # SLR-Automation-with-GPT-4
 
 ## Introduction
-This project provides a Python script that automates the evaluation of academic papers retrieved from the CORE repository using OpenAI's GPT-4 model. The script connects directly to a specified Google Drive folder containing PDF papers, extracts text from each PDF, evaluates it based on systematic literature review (SLR) inclusion criteria, and records the results in a Google Sheet. The goal is to assist researchers in automating the screening and quality assessment process for SLRs in social sciences, focusing on detailed evaluation criteria while leveraging the strengths of automated AI-based assessments.
+This project builds upon the previous work in [AI Paper Retrieval and Upload Script](https://github.com/HosungYou/AI-Paper-Retrieval-and-Upload-Script), providing a sequential workflow for conducting systematic literature reviews (SLR). The initial project focuses on retrieving academic papers from the CORE repository and uploading them to Google Drive, while this repository automates the subsequent evaluation of these papers using OpenAI's GPT-4 model.
+
+The script connects directly to a specified Google Drive folder containing PDF papers retrieved from the previous project, extracts text from each PDF, evaluates it based on SLR inclusion criteria, and records the results in a Google Sheet. The goal is to assist researchers in automating the screening and quality assessment process for SLRs in social sciences, focusing on detailed evaluation criteria while leveraging the strengths of AI-based assessments.
+
+Users can follow the steps provided in the linked repository to collect the academic papers and then use this repository to perform automated quality assessments, making the entire SLR process more efficient and streamlined.
 
 ## Table of Contents
 - [Introduction](#introduction)
