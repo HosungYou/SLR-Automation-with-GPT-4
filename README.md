@@ -1,7 +1,7 @@
-# SLR Automation with GPT-4
+# SLR-Automation-with-GPT-4
 
 ## Introduction
-This project provides a Python script that automates the evaluation of academic papers using OpenAI's GPT-4 model. The script connects directly to a specified Google Drive folder containing PDF papers, extracts text from each PDF, evaluates it based on systematic literature review (SLR) inclusion criteria, and records the results in a Google Sheet. This tool is designed to assist researchers in automating the screening process for SLRs in social sciences.
+This project provides a Python script that automates the evaluation of academic papers retrieved from the CORE repository using OpenAI's GPT-4 model. The script connects directly to a specified Google Drive folder containing PDF papers, extracts text from each PDF, evaluates it based on systematic literature review (SLR) inclusion criteria, and records the results in a Google Sheet. The goal is to assist researchers in automating the screening and quality assessment process for SLRs in social sciences, focusing on detailed evaluation criteria while leveraging the strengths of automated AI-based assessments.
 
 ## Table of Contents
 - [Introduction](#introduction)
@@ -10,6 +10,7 @@ This project provides a Python script that automates the evaluation of academic 
 - [Installation](#installation)
 - [Configuration](#configuration)
 - [Usage](#usage)
+- [Google Sheet Structure](#google-sheet-structure)
 - [Code Overview](#code-overview)
 - [Limitations](#limitations)
 - [Contributing](#contributing)
@@ -19,14 +20,16 @@ This project provides a Python script that automates the evaluation of academic 
 - [Disclaimer](#disclaimer)
 
 ## Features
-- **Direct PDF Processing from Google Drive**: Processes PDFs directly from a specified Google Drive folder.
+- **Direct PDF Processing from Google Drive**: Processes PDFs directly from a specified Google Drive folder without needing to download them locally.
 - **Text Extraction**: Extracts text from PDFs, focusing on the first few pages to stay within GPT-4's context window.
-- **GPT-4 Evaluation**: Uses GPT-4 to assess each paper based on SLR inclusion criteria:
-  - Relevance
-  - Methodology Quality
-  - Clarity of Findings
-  - Contribution to Field
-- **Results Recording**: Writes the evaluation results to a specified Google Sheet for easy review.
+- **Automated Quality Assessment (QA)**: Uses GPT-4 to assess each paper based on SLR inclusion criteria:
+  - Relevance to the research focus
+  - Clarity of proposed framework or methodology
+  - Contribution to the field
+  - Discussion of limitations
+  - Methodology description quality
+- **Detailed Justification**: Provides justifications for each evaluation, making the quality assessment transparent and reproducible.
+- **Results Recording**: Writes the evaluation results, justifications, and a final QA score to a specified Google Sheet for easy review and reference.
 
 ## Prerequisites
 - **Python 3.9 or higher**
@@ -37,10 +40,11 @@ This project provides a Python script that automates the evaluation of academic 
 - **Required Python Libraries**:
   - `openai`
   - `requests`
-  - `pandas`
   - `google-auth`
   - `google-api-python-client`
   - `PyPDF2`
+  - `tqdm`
+- **Google Drive Folder**: A folder in Google Drive containing PDF files to be evaluated
 
 ## Installation
 1. **Clone the Repository**:
@@ -48,7 +52,7 @@ This project provides a Python script that automates the evaluation of academic 
    git clone https://github.com/HosungYou/SLR-Automation-with-GPT4.git
    cd SLR-Automation-with-GPT4
    ```
-2. **Create a Virtual Environment (Optional)**:
+2. **Create a Virtual Environment (Optional but Recommended)**:
    ```bash
    python -m venv venv
    source venv/bin/activate  # On Windows, use 'venv\Scripts\activate'
@@ -93,21 +97,36 @@ python script.py
 ### Workflow:
 1. **Authentication**: Authenticates with Google Drive and Google Sheets using service account credentials.
 2. **Process PDFs**: Reads and processes each PDF, extracts text, and evaluates it using GPT-4.
-3. **Record Results**: Writes evaluation results to the specified Google Sheet.
+3. **Record Results**: Writes evaluation results, justifications, and a final QA score to the specified Google Sheet.
+
+## Google Sheet Structure
+To accommodate maximum information, the Google Sheet used for storing SLR assessments will include the following columns:
+1. **Article Title**: The name of the paper being evaluated.
+2. **Related to Context?**: (Yes/No/Partially) - Is the paper related to the defined social science context?
+   - **Justification**: Specific excerpt from the paper justifying the assessment.
+3. **Proposed Framework/Methodology?**: (Yes/No/Partially) - Does the paper propose a framework or methodology?
+   - **Justification**: Text reference supporting the evaluation.
+4. **Contribution to Field?**: (Yes/No/Partially) - Does the paper clearly explain its contribution?
+   - **Justification**: Supporting excerpt from the paper.
+5. **Discussion of Limitations?**: (Yes/No/Partially) - Does the paper discuss its limitations and the reliability of its results?
+   - **Justification**: Justifying text excerpt.
+6. **Methodology Detail?**: (Yes/No/Partially) - Is the methodology explained in sufficient detail?
+   - **Justification**: Excerpt from the paper.
+7. **Total QA Score**: (0 to 5, calculated) - Calculated based on "Yes" (1.0), "Partially" (0.5), "No" (0.0).
 
 ## Code Overview
 - **`authenticate_google_services()`**: Authenticates with Google APIs using service account credentials.
-- **`process_pdfs_from_drive(creds, folder_id)`**: Connects to Google Drive, iterates over PDF files, and evaluates them using GPT-4.
-- **`extract_text_from_pdf(file_stream, max_pages=5)`**: Extracts text from a PDF file, limiting to the first `max_pages` pages.
-- **`evaluate_pdf_with_gpt(text)`**: Uses GPT-4 to evaluate the extracted text based on SLR criteria.
-- **`write_data_to_google_sheets(creds, sheet_id, data)`**: Writes evaluation data to a specified Google Sheet.
+- **`process_pdfs_from_drive(drive_service, sheets_service, folder_id)`**: Connects to Google Drive, iterates over PDF files, and evaluates them using GPT-4.
+- **`extract_text_from_pdf(file_stream, max_pages=5)`**: Extracts text from a PDF file, limiting extraction to the first `max_pages` pages.
+- **`evaluate_pdf_with_gpt(text)`**: Uses GPT-4 to evaluate the extracted text based on SLR criteria and provides justifications.
+- **`write_data_to_google_sheets(sheets_service, sheet_id, data)`**: Writes evaluation data, including justifications, to a specified Google Sheet.
 - **`main()`**: Orchestrates the entire workflow.
 
 ## Limitations
 - **Context Length**: GPT-4 has a maximum context length. The script limits text extraction to accommodate this.
 - **OpenAI API Usage**: Processing large numbers of papers may incur significant API usage and costs. Monitor your usage in the OpenAI dashboard.
 - **Rate Limits**: Be mindful of OpenAI's rate limits and consider adding delays if necessary.
-- **Accuracy of GPT-4 Evaluations**: GPT-4's assessments may not always align perfectly with human judgments.
+- **Accuracy of GPT-4 Evaluations**: GPT-4's assessments may not always align perfectly with human judgments. Use evaluations as guidance rather than definitive conclusions.
 
 ## Contributing
 Contributions are welcome! Please follow these steps:
