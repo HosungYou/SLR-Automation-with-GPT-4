@@ -54,7 +54,7 @@ Users can follow the steps provided in the linked repository to collect the acad
 1. **Clone the Repository**:
    ```bash
    git clone https://github.com/HosungYou/SLR-Automation-with-GPT-4.git
-   cd SLR-Automation-with-GPT4
+   cd SLR-Automation-with-GPT-4
    ```
 2. **Create a Virtual Environment (Optional but Recommended)**:
    ```bash
