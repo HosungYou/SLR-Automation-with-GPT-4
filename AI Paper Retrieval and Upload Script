@@ -1,0 +1,223 @@
+import os
+import requests
+import io
+import time
+from tqdm import tqdm
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaIoBaseUpload
+from fpdf import FPDF
+
+# --- Configuration Section ---
+
+# Enter your CORE API Key
+CORE_API_KEY = 'YOUR_CORE_API_KEY'
+
+# Set the scope for Google Drive API
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+# Set your search query
+QUERY = '"AI adoption" AND TOE'  # Modify as needed
+
+# Number of results per page (adjust as needed, max limit may be 100)
+PAGE_SIZE = 100  # Change to your desired number
+
+# Google Drive upload folder ID (set if you want to upload to a specific folder)
+DRIVE_FOLDER_ID = 'YOUR_GOOGLE_DRIVE_FOLDER_ID'
+
+# Maximum number of retries for API requests
+MAX_RETRIES = 5
+
+# Time to wait between retries (in seconds)
+RETRY_WAIT_TIME = 60
+
+# --- End of Configuration Section ---
+
+def authenticate_google_drive():
+    creds = None
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+    if not creds or not creds.valid:
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'credentials.json', SCOPES)
+        creds = flow.run_local_server(port=0)
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+    return creds
+
+def search_core(query, offset=0, limit=100, retries=MAX_RETRIES):
+    url = f'https://api.core.ac.uk/v3/search/works'
+    headers = {'Authorization': f'Bearer {CORE_API_KEY}'}
+    params = {
+        'q': query,
+        'offset': offset,
+        'limit': limit
+    }
+    attempt = 0
+    while attempt < retries:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 429:
+            retry_after = int(response.headers.get('X-RateLimit-Retry-After', RETRY_WAIT_TIME))
+            print(f"Rate limit exceeded. Retrying after {retry_after} seconds.")
+            time.sleep(retry_after)
+            attempt += 1
+        else:
+            print(f"Error: {response.status_code}, {response.text}")
+            return None
+    print("Maximum retries exceeded for search_core.")
+    return None
+
+def get_outputs_for_work(work_id, retries=MAX_RETRIES):
+    url = f'https://api.core.ac.uk/v3/works/{work_id}/outputs'
+    headers = {'Authorization': f'Bearer {CORE_API_KEY}'}
+    attempt = 0
+    while attempt < retries:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 429:
+            retry_after = int(response.headers.get('X-RateLimit-Retry-After', RETRY_WAIT_TIME))
+            print(f"Rate limit exceeded while fetching outputs for work {work_id}. Retrying after {retry_after} seconds.")
+            time.sleep(retry_after)
+            attempt += 1
+        else:
+            print(f"Error fetching outputs for work {work_id}: {response.status_code}, {response.text}")
+            return None
+    print(f"Maximum retries exceeded for work {work_id}.")
+    return None
+
+def text_to_pdf(text):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_font("Arial", size=12)
+    pdf.multi_cell(0, 10, text)
+    file_stream = io.BytesIO()
+    pdf.output(file_stream)
+    file_stream.seek(0)
+    return file_stream
+
+def download_and_upload_pdfs(search_results, drive_service, folder_id=None):
+    for work in tqdm(search_results['results'], desc='Uploading PDFs'):
+        title = work.get('title', 'no_title').replace('/', '_')
+        work_id = work.get('id')
+        license_type = work.get('license')
+
+        # Retrieve outputs for the work
+        outputs = get_outputs_for_work(work_id)
+        if outputs:
+            download_url = None
+            full_text = None
+
+            # Search for a download URL or full text in the outputs
+            for output in outputs:
+                download_url = output.get('downloadUrl') or output.get('download_url')
+                full_text = output.get('fullText') or output.get('full_text')
+                if download_url or full_text:
+                    break  # Found a downloadable output
+
+            if download_url or full_text:
+                # Verify license (adjust as needed)
+                if not license_type or 'cc' in license_type.lower() or 'public' in license_type.lower():
+                    filename = f"{title[:100]}.pdf"
+                    try:
+                        if download_url:
+                            response = requests.get(download_url, stream=True)
+                            content_type = response.headers.get('Content-Type', '').lower()
+                            if response.status_code == 200 and 'pdf' in content_type:
+                                file_stream = io.BytesIO()
+                                for chunk in response.iter_content(chunk_size=8192):
+                                    if chunk:
+                                        file_stream.write(chunk)
+                                file_stream.seek(0)
+                            else:
+                                print(f"Download failed for {title}: Not a PDF or bad response")
+                                continue
+                        elif full_text:
+                            print(f"Generating PDF from full text for {title}")
+                            try:
+                                file_stream = text_to_pdf(full_text)
+                            except Exception as e:
+                                print(f"Error generating PDF for {title}: {e}")
+                                continue
+
+                        # Upload to Google Drive
+                        file_metadata = {'name': filename}
+                        if folder_id:
+                            file_metadata['parents'] = [folder_id]
+
+                        media = MediaIoBaseUpload(file_stream, mimetype='application/pdf')
+                        uploaded_file = drive_service.files().create(
+                            body=file_metadata,
+                            media_body=media,
+                            fields='id'
+                        ).execute()
+                        print(f"Upload successful: {filename}, File ID: {uploaded_file.get('id')}")
+                    except Exception as e:
+                        print(f"Error downloading {title}: {e}")
+                else:
+                    print(f"License does not permit downloading: {license_type}")
+            else:
+                print(f"No download URL or full text available for: {title}")
+        else:
+            print(f"Could not retrieve outputs for Work ID {work_id}")
+
+def get_total_available_papers(query):
+    search_results = search_core(query, offset=0, limit=1)
+    if search_results and 'totalHits' in search_results:
+        total_available = search_results['totalHits']
+        print(f"Total available papers for query '{query}': {total_available}")
+        return total_available
+    else:
+        print("Could not retrieve total number of papers.")
+        return 0
+
+def main():
+    # Authenticate with Google Drive
+    creds = authenticate_google_drive()
+    drive_service = build('drive', 'v3', credentials=creds)
+
+    # Check total available papers
+    total_available_papers = get_total_available_papers(QUERY)
+    if total_available_papers == 0:
+        print("No papers available for the given query.")
+        return
+
+    # Set the total number of papers you want to retrieve
+    total_papers = min(total_available_papers, 10000)  # Adjust as needed
+
+    limit = PAGE_SIZE  # Number of papers per page
+    total_pages = (total_papers + limit - 1) // limit  # Calculate total pages needed
+
+    # Initialize a set to keep track of processed work IDs to avoid duplicates
+    processed_work_ids = set()
+
+    for page in range(1, total_pages + 1):
+        offset = (page - 1) * limit
+        print(f"Fetching page {page} of {total_pages} (offset {offset})...")
+        search_results = search_core(QUERY, offset=offset, limit=limit)
+        if search_results and 'results' in search_results and search_results['results']:
+            # Filter out already processed works
+            new_results = []
+            for work in search_results['results']:
+                work_id = work.get('id')
+                if work_id not in processed_work_ids:
+                    processed_work_ids.add(work_id)
+                    new_results.append(work)
+            if new_results:
+                search_results['results'] = new_results
+                download_and_upload_pdfs(search_results, drive_service, folder_id=DRIVE_FOLDER_ID)
+            else:
+                print("No new works to process on this page.")
+        else:
+            print(f"No search results found at offset {offset}.")
+            break  # Exit the loop if no results are returned
+
+        # Wait to respect rate limits (max 10 requests per minute)
+        time.sleep(6)
+
+if __name__ == '__main__':
+    main()
