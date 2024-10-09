@@ -114,12 +114,21 @@ To accommodate maximum information, the Google Sheet used for storing SLR assess
    - **Justification**: Excerpt from the paper.
 7. **Total QA Score**: (0 to 5, calculated) - Calculated based on "Yes" (1.0), "Partially" (0.5), "No" (0.0).
 
+## Scoring Logic
+The total QA score is calculated based on the following criteria:
+- **"Yes"**: 1.0 point
+- **"Partially"**: 0.5 points
+- **"No"**: 0.0 points
+
+The script adds up the scores for all criteria to compute the final QA score for each paper, with a maximum possible score of 5. This score is written to the Google Sheet to give an overall quality assessment of the paper.
+
 ## Code Overview
 - **`authenticate_google_services()`**: Authenticates with Google APIs using service account credentials.
 - **`process_pdfs_from_drive(drive_service, sheets_service, folder_id)`**: Connects to Google Drive, iterates over PDF files, and evaluates them using GPT-4.
 - **`extract_text_from_pdf(file_stream, max_pages=5)`**: Extracts text from a PDF file, limiting extraction to the first `max_pages` pages.
 - **`evaluate_pdf_with_gpt(text)`**: Uses GPT-4 to evaluate the extracted text based on SLR criteria and provides justifications.
-- **`write_data_to_google_sheets(sheets_service, sheet_id, data)`**: Writes evaluation data, including justifications, to a specified Google Sheet.
+- **`calculate_total_score(evaluation_data)`**: Calculates the total QA score based on individual criterion scores.
+- **`write_data_to_google_sheets(sheets_service, sheet_id, data)`**: Writes evaluation data, including justifications and the total QA score, to a specified Google Sheet.
 - **`main()`**: Orchestrates the entire workflow.
 
 ## Limitations
