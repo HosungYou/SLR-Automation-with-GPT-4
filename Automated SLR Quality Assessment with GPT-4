@@ -74,6 +74,10 @@ def process_pdfs_from_drive(drive_service, sheets_service, folder_id):
     ).execute()
     files = results.get('files', [])
 
+    if not files:
+        print("No PDF files found in the specified Google Drive folder.")
+        return
+
     for file in tqdm(files, desc='Processing PDFs'):
         file_id = file['id']
         file_name = file['name']
