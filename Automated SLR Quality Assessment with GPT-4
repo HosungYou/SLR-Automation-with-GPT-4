@@ -138,27 +138,36 @@ def process_pdfs_from_drive(drive_service, sheets_service, folder_id):
         # Process the evaluation to split into columns
         evaluation_lines = evaluation.split('\n')
 
-        # Ensure evaluation answers are clean, and remove unnecessary prefixes
+        # Validate that we have exactly 15 values, fill in missing or handle extra values
+        if len(evaluation_lines) < 15:
+            # If there are fewer than 15 lines, fill in with empty strings to match column count
+            evaluation_lines.extend([''] * (15 - len(evaluation_lines)))
+        elif len(evaluation_lines) > 15:
+            # If there are more than 15 lines, trim the excess lines
+            evaluation_lines = evaluation_lines[:15]
+
+        # Now map the evaluation lines to your expected columns
         paper_evaluation = [
             file_name,  # Paper title
-            evaluation_lines[0].strip(),  # Yes/No/Partially for question 1
+            evaluation_lines[0].strip(),  # Question 1 answer
             evaluation_lines[1].strip(),  # Justification for question 1
             evaluation_lines[2].strip(),  # Reference for question 1
-            evaluation_lines[3].strip(),  # Yes/No/Partially for question 2
+            evaluation_lines[3].strip(),  # Question 2 answer
             evaluation_lines[4].strip(),  # Justification for question 2
             evaluation_lines[5].strip(),  # Reference for question 2
-            evaluation_lines[6].strip(),  # Yes/No/Partially for question 3
+            evaluation_lines[6].strip(),  # Question 3 answer
             evaluation_lines[7].strip(),  # Justification for question 3
             evaluation_lines[8].strip(),  # Reference for question 3
-            evaluation_lines[9].strip(),  # Yes/No/Partially for question 4
+            evaluation_lines[9].strip(),  # Question 4 answer
             evaluation_lines[10].strip(),  # Justification for question 4
             evaluation_lines[11].strip(),  # Reference for question 4
-            evaluation_lines[12].strip(),  # Yes/No/Partially for question 5
+            evaluation_lines[12].strip(),  # Question 5 answer
             evaluation_lines[13].strip(),  # Justification for question 5
-            evaluation_lines[14].strip()   # Reference for question 5
+            evaluation_lines[14].strip()  # Reference for question 5
         ]
 
-        # Write evaluation results to Google Sheets
+        # Now write the structured evaluation to Google Sheets
+
         write_data_to_google_sheets(sheets_service, SHEET_ID, [paper_evaluation], is_first_row=is_first_row)
         is_first_row = False  # Only add headers once
 
