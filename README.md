@@ -48,14 +48,14 @@ Users can follow the steps provided in the linked repository to collect the acad
    ```env
    OPENAI_API_KEY=your_openai_api_key_here
    ```
+   - **Note**: The `.env` file should be named exactly as shown and placed in the root directory of your project. On Mac, if the file is hidden, you can use `Cmd + Shift + .` to toggle hidden files in Finder.
 
 ### Google Cloud Configuration
 1. **Enable Google Drive and Google Sheets APIs** in the Google Cloud Console.
 2. **Create a service account** and download the credentials file (`service_account.json`). Place this file in the root directory of the repository.
 3. **Set Google Drive and Sheets IDs**:
-   - Update the script with your Google Sheet ID and Google Drive folder ID:
-     - `SHEET_ID`: The unique identifier of your Google Sheet (not the full URL).
-     - `GOOGLE_DRIVE_FOLDER_ID`: The ID of the folder containing the PDFs.
+   - `SHEET_ID`: This is the unique identifier of your Google Sheet. It is found in the URL between `/d/` and `/edit` (e.g., `https://docs.google.com/spreadsheets/d/1abcDEFgHIjklMNOPQRsTUVWXYZ/edit` — use only `1abcDEFgHIjklMNOPQRsTUVWXYZ`).
+   - `GOOGLE_DRIVE_FOLDER_ID`: The ID of the folder containing the PDFs, which can be found in the URL of the folder (e.g., `https://drive.google.com/drive/folders/1a2B3cD4E5F6G7H8I9J0` — use only `1a2B3cD4E5F6G7H8I9J0`).
 
 ### OpenAI API Configuration
 1. Ensure you have access to the GPT-4 API.
