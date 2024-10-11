@@ -1,18 +1,29 @@
+from openai import OpenAI  # Import the client-based OpenAI
 import os
-import openai
-import requests
-import io
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from PyPDF2 import PdfReader
+import pdfplumber
 from tqdm import tqdm
+import io
+from dotenv import load_dotenv
+
+# Load the .env file
+load_dotenv()
+
+# Fetch the OpenAI API key
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
+if not OPENAI_API_KEY:
+    raise ValueError("OPENAI_API_KEY environment variable is not set!")
+
+# Initialize the OpenAI client with the API key
+client = OpenAI(api_key=OPENAI_API_KEY)
 
 # Configuration Section
 SCOPES = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
 SERVICE_ACCOUNT_FILE = 'service_account.json'  # Path to Google Cloud service account credentials
-SHEET_ID = 'YOUR_GOOGLE_SHEET_ID'  # Google Sheet ID to save results
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')  # OpenAI API key for GPT-4
-GOOGLE_DRIVE_FOLDER_ID = 'YOUR_GOOGLE_DRIVE_FOLDER_ID'  # Google Drive folder with papers
+SHEET_ID = '1az0RHQaGLF5yusr8-L-OwpLkgmtPyx76ncAxf2Bl_1g'  # Google Sheet ID to save results
+GOOGLE_DRIVE_FOLDER_ID = '19gAJtKoRIa70pstI2hiTL6XZLzbwpnJL'  # Google Drive folder with papers
 
 # Authenticate Google services
 def authenticate_google_services():
@@ -23,39 +34,70 @@ def authenticate_google_services():
     sheets_service = build('sheets', 'v4', credentials=credentials)
     return drive_service, sheets_service
 
-# Extract text from PDF files (limited to the first few pages)
-def extract_text_from_pdf(file_stream, max_pages=5):
-    reader = PdfReader(file_stream)
+# Extract text and tables from a PDF file
+def extract_text_and_tables_from_pdf(file_stream):
     text = ""
-    for i in range(min(max_pages, len(reader.pages))):
-        text += reader.pages[i].extract_text()
+
+    with pdfplumber.open(io.BytesIO(file_stream)) as pdf:
+        for page in pdf.pages:
+            text += page.extract_text() or ""
+
     return text
 
-# Use GPT-4 to evaluate the text using predefined SLR criteria
+# Evaluate extracted PDF data using OpenAI API
 def evaluate_pdf_with_gpt(text):
-    openai.api_key = OPENAI_API_KEY
-    prompt = (
-        "You are conducting a systematic literature review in social sciences. Based on the following text, "
-        "please evaluate the paper on the following Quality Assessment (QA) criteria:\n"
-        "1. Is the paper related to the context of the topic? (yes/no/partially)\n"
-        "2. Does the paper propose a clear framework, tool, or methodology? (yes/no/partially)\n"
-        "3. Is there a clear explanation of its contribution to the field? (yes/no/partially)\n"
-        "4. Does the paper discuss limitations and reliability of results? (yes/no/partially)\n"
-        "5. Is the methodology described in sufficient detail? (yes/no/partially)\n"
-        "For each criterion, provide a brief justification from the text.\n\n"
-        f"Text:\n{text}\n\n"
-        "Provide your evaluation in bullet points, specifying yes/no/partially and justifications."
-    )
-    response = openai.Completion.create(
-        engine="gpt-4",
-        prompt=prompt,
-        max_tokens=500
-    )
-    return response.choices[0].text.strip()
+    try:
+        # Prepare your prompt for GPT evaluation
+        prompt = (
+            f"You are conducting a systematic literature review. Based on the following document text, "
+            f"please evaluate the paper on the following Quality Assessment (QA) criteria:\n"
+            f"Document Text:\n{text}\n\n"
+            "1. Is the paper related to the context of the topic? (yes/no/partially)\n"
+            "2. Does the paper propose a clear framework, tool, or methodology? (yes/no/partially)\n"
+            "3. Is there a clear explanation of its contribution to the field? (yes/no/partially)\n"
+            "4. Does the paper discuss limitations and reliability of results? (yes/no/partially)\n"
+            "5. Is the methodology described in sufficient detail? (yes/no/partially)\n"
+            "For each criterion, provide a brief justification and references from the text."
+        )
+
+        # Call the OpenAI API using the client object
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",  # Or "gpt-3.5-turbo" if necessary
+            messages=[
+                {"role": "user", "content": prompt}
+            ],
+            max_tokens=500,
+            temperature=0.7
+        )
+
+        # Extract the assistant's reply
+        evaluation = response.choices[0].message.content.strip()
+        return evaluation
+    except Exception as e:
+        print(f"Error during GPT evaluation: {e}")
+        return "Error in evaluation"
 
 # Write evaluation data to Google Sheets
-def write_data_to_google_sheets(sheets_service, sheet_id, data):
+def write_data_to_google_sheets(sheets_service, sheet_id, data, is_first_row=False):
     sheet = sheets_service.spreadsheets()
+
+    # If this is the first row, insert the headers
+    if is_first_row:
+        headers = [
+            "Paper Title", "Is the paper related to the context of the topic?", "Justification",
+            "References", "Does the paper propose a clear framework?", "Justification",
+            "References", "Is there a clear explanation of its contribution?",
+            "Justification", "References", "Does the paper discuss limitations?",
+            "Justification", "References", "Is the methodology described in detail?",
+            "Justification", "References"
+        ]
+        sheet.values().update(
+            spreadsheetId=sheet_id,
+            range="Sheet1!A1",
+            valueInputOption="RAW",
+            body={"values": [headers]}
+        ).execute()
+
     request = sheet.values().append(
         spreadsheetId=sheet_id,
         range="Sheet1",
@@ -78,30 +120,47 @@ def process_pdfs_from_drive(drive_service, sheets_service, folder_id):
         print("No PDF files found in the specified Google Drive folder.")
         return
 
+    is_first_row = True  # Track if it's the first row to add headers
     for file in tqdm(files, desc='Processing PDFs'):
         file_id = file['id']
-        file_name = file['name']
+        file_name = file['name'].replace('.pdf', '')  # Remove the .pdf extension from the title
 
-        # Download file content
+        # Download file content from Google Drive
         request = drive_service.files().get_media(fileId=file_id)
         file_stream = io.BytesIO(request.execute())
 
-        # Extract text and evaluate it
-        text = extract_text_from_pdf(file_stream)
-        if not text:
-            print(f"Failed to extract text from {file_name}")
-            continue
+        # Extract text from the PDF
+        text = extract_text_and_tables_from_pdf(file_stream.getvalue())
 
+        # Evaluate the extracted data with OpenAI GPT
         evaluation = evaluate_pdf_with_gpt(text)
 
-        # Organize data for Google Sheets
-        evaluation_data = evaluation.split('\n')
-        values = [file_name]
-        for eval_item in evaluation_data:
-            values.append(eval_item)
+        # Process the evaluation to split into columns
+        evaluation_lines = evaluation.split('\n')
 
-        # Write evaluation results to Google Sheet
-        write_data_to_google_sheets(sheets_service, SHEET_ID, [values])
+        # Ensure evaluation answers are clean, and remove unnecessary prefixes
+        paper_evaluation = [
+            file_name,  # Paper title
+            evaluation_lines[0].strip(),  # Yes/No/Partially for question 1
+            evaluation_lines[1].strip(),  # Justification for question 1
+            evaluation_lines[2].strip(),  # Reference for question 1
+            evaluation_lines[3].strip(),  # Yes/No/Partially for question 2
+            evaluation_lines[4].strip(),  # Justification for question 2
+            evaluation_lines[5].strip(),  # Reference for question 2
+            evaluation_lines[6].strip(),  # Yes/No/Partially for question 3
+            evaluation_lines[7].strip(),  # Justification for question 3
+            evaluation_lines[8].strip(),  # Reference for question 3
+            evaluation_lines[9].strip(),  # Yes/No/Partially for question 4
+            evaluation_lines[10].strip(),  # Justification for question 4
+            evaluation_lines[11].strip(),  # Reference for question 4
+            evaluation_lines[12].strip(),  # Yes/No/Partially for question 5
+            evaluation_lines[13].strip(),  # Justification for question 5
+            evaluation_lines[14].strip()   # Reference for question 5
+        ]
+
+        # Write evaluation results to Google Sheets
+        write_data_to_google_sheets(sheets_service, SHEET_ID, [paper_evaluation], is_first_row=is_first_row)
+        is_first_row = False  # Only add headers once
 
 # Main function to run the script
 def main():
