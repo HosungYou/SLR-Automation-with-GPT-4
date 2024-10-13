@@ -6,6 +6,7 @@ import pdfplumber
 from tqdm import tqdm
 import io
 from dotenv import load_dotenv
+import re
 
 # Load the .env file
 load_dotenv()
@@ -25,6 +26,7 @@ SERVICE_ACCOUNT_FILE = 'service_account.json'  # Path to Google Cloud service ac
 SHEET_ID = '1az0RHQaGLF5yusr8-L-OwpLkgmtPyx76ncAxf2Bl_1g'  # Google Sheet ID to save results
 GOOGLE_DRIVE_FOLDER_ID = '19gAJtKoRIa70pstI2hiTL6XZLzbwpnJL'  # Google Drive folder with papers
 
+
 # Authenticate Google services
 def authenticate_google_services():
     credentials = service_account.Credentials.from_service_account_file(
@@ -33,6 +35,7 @@ def authenticate_google_services():
     drive_service = build('drive', 'v3', credentials=credentials)
     sheets_service = build('sheets', 'v4', credentials=credentials)
     return drive_service, sheets_service
+
 
 # Extract text and tables from a PDF file
 def extract_text_and_tables_from_pdf(file_stream):
@@ -44,38 +47,66 @@ def extract_text_and_tables_from_pdf(file_stream):
 
     return text
 
-# Evaluate extracted PDF data using OpenAI API
+
 def evaluate_pdf_with_gpt(text):
     try:
         # Prepare your prompt for GPT evaluation
         prompt = (
             f"You are conducting a systematic literature review. Based on the following document text, "
-            f"please evaluate the paper on the following Quality Assessment (QA) criteria:\n"
-            f"Document Text:\n{text}\n\n"
-            "1. Is the paper related to the context of the topic? (yes/no/partially)\n"
-            "2. Does the paper propose a clear framework, tool, or methodology? (yes/no/partially)\n"
-            "3. Is there a clear explanation of its contribution to the field? (yes/no/partially)\n"
-            "4. Does the paper discuss limitations and reliability of results? (yes/no/partially)\n"
-            "5. Is the methodology described in sufficient detail? (yes/no/partially)\n"
-            "For each criterion, provide a brief justification and references from the text."
+            f"please evaluate the paper on the following Quality Assessment (QA) criteria.\n"
+            f"Provide answers in the following format for each question:\n"
+            f"Answer: Yes/No/Partially\n"
+            f"Justification: Brief justification here.\n"
+            f"Reference: Relevant reference from the paper.\n\n"
+            f"Document Text:\n{text[:3000]}\n\n"
+            "Please answer the following questions:\n"
+            "1. Is the paper related to the context of the topic?\n"
+            "2. Does the paper propose a clear framework, tool, or methodology?\n"
+            "3. Is there a clear explanation of its contribution to the field?\n"
+            "4. Does the paper discuss limitations and reliability of results?\n"
+            "5. Is the methodology described in sufficient detail?\n"
+            "Ensure your responses are concise and formatted exactly as specified."
         )
 
         # Call the OpenAI API using the client object
         response = client.chat.completions.create(
-            model="gpt-4o-mini",  # Or "gpt-3.5-turbo" if necessary
+            model="gpt-4o-mini",
             messages=[
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=500,
+            max_tokens=1500,
             temperature=0.7
         )
 
         # Extract the assistant's reply
         evaluation = response.choices[0].message.content.strip()
+
+        # Debug: Print the GPT response
+        print(f"GPT Response:\n{evaluation}\n")
+
         return evaluation
     except Exception as e:
         print(f"Error during GPT evaluation: {e}")
         return "Error in evaluation"
+
+
+def parse_gpt_response(evaluation):
+    pattern = r"Answer:\s*(Yes|No|Partially)\s*Justification:\s*(.*?)\s*Reference:\s*(.*?)\s*(?=Answer:|$)"
+    matches = re.findall(pattern, evaluation, re.IGNORECASE | re.DOTALL)
+
+    responses = []
+    for match in matches[:5]:  # Only expecting 5 questions
+        answer = match[0].strip()
+        justification = match[1].strip()
+        reference = match[2].strip()
+        responses.append([answer, justification, reference])
+
+    # Handle missing responses
+    while len(responses) < 5:
+        responses.append(["", "", ""])
+
+    return responses
+
 
 # Write evaluation data to Google Sheets
 def write_data_to_google_sheets(sheets_service, sheet_id, data, is_first_row=False):
@@ -108,6 +139,7 @@ def write_data_to_google_sheets(sheets_service, sheet_id, data, is_first_row=Fal
     response = request.execute()
     return response
 
+
 # Process PDFs from Google Drive and collect QA assessments
 def process_pdfs_from_drive(drive_service, sheets_service, folder_id):
     results = drive_service.files().list(
@@ -135,46 +167,29 @@ def process_pdfs_from_drive(drive_service, sheets_service, folder_id):
         # Evaluate the extracted data with OpenAI GPT
         evaluation = evaluate_pdf_with_gpt(text)
 
-        # Process the evaluation to split into columns
-        evaluation_lines = evaluation.split('\n')
+        # Parse the GPT evaluation into columns
+        responses = parse_gpt_response(evaluation)
 
-        # Validate that we have exactly 15 values, fill in missing or handle extra values
-        if len(evaluation_lines) < 15:
-            # If there are fewer than 15 lines, fill in with empty strings to match column count
-            evaluation_lines.extend([''] * (15 - len(evaluation_lines)))
-        elif len(evaluation_lines) > 15:
-            # If there are more than 15 lines, trim the excess lines
-            evaluation_lines = evaluation_lines[:15]
-
-        # Now map the evaluation lines to your expected columns
+        # Map parsed responses to the expected column structure
         paper_evaluation = [
             file_name,  # Paper title
-            evaluation_lines[0].strip(),  # Question 1 answer
-            evaluation_lines[1].strip(),  # Justification for question 1
-            evaluation_lines[2].strip(),  # Reference for question 1
-            evaluation_lines[3].strip(),  # Question 2 answer
-            evaluation_lines[4].strip(),  # Justification for question 2
-            evaluation_lines[5].strip(),  # Reference for question 2
-            evaluation_lines[6].strip(),  # Question 3 answer
-            evaluation_lines[7].strip(),  # Justification for question 3
-            evaluation_lines[8].strip(),  # Reference for question 3
-            evaluation_lines[9].strip(),  # Question 4 answer
-            evaluation_lines[10].strip(),  # Justification for question 4
-            evaluation_lines[11].strip(),  # Reference for question 4
-            evaluation_lines[12].strip(),  # Question 5 answer
-            evaluation_lines[13].strip(),  # Justification for question 5
-            evaluation_lines[14].strip()  # Reference for question 5
+            responses[0][0], responses[0][1], responses[0][2],  # Question 1
+            responses[1][0], responses[1][1], responses[1][2],  # Question 2
+            responses[2][0], responses[2][1], responses[2][2],  # Question 3
+            responses[3][0], responses[3][1], responses[3][2],  # Question 4
+            responses[4][0], responses[4][1], responses[4][2],  # Question 5
         ]
 
         # Now write the structured evaluation to Google Sheets
-
         write_data_to_google_sheets(sheets_service, SHEET_ID, [paper_evaluation], is_first_row=is_first_row)
         is_first_row = False  # Only add headers once
+
 
 # Main function to run the script
 def main():
     drive_service, sheets_service = authenticate_google_services()
     process_pdfs_from_drive(drive_service, sheets_service, GOOGLE_DRIVE_FOLDER_ID)
+
 
 if __name__ == "__main__":
     main()
